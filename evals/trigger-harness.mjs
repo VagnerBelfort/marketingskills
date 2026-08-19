@@ -6,6 +6,11 @@
 // which ONE skill should handle each labeled query, and reports routing accuracy
 // + the confusions (which skill wrongly grabbed it).
 //
+// A case may also list `forbidden` skills — named adjacent skills that must stay
+// quiet for that query. Routing to one is a scope-boundary violation: the worst
+// miss class, because it means two descriptions are actively fighting over the
+// query (pattern from AgriciDaniel/claude-ads routing evals, MIT).
+//
 //   node trigger-harness.mjs                 # uses triggers/router.json
 //   node trigger-harness.mjs my-set.json
 //
@@ -40,6 +45,12 @@ const cases = Array.isArray(set) ? set : set.cases;
 const catalog = loadCatalog();
 const names = new Set(catalog.map((c) => c.name));
 
+// Catch label typos up front: a forbidden name that isn't a real skill can never
+// fire, which would silently weaken the assertion.
+for (const c of cases)
+  for (const f of c.forbidden ?? [])
+    if (!names.has(f)) console.error(dim(`  ⚠ unknown forbidden skill "${f}" in case: ${c.query}`));
+
 const system =
   `You are the router for a marketing-skills library. Given a user request, choose the ONE skill whose description best fits it. ` +
   `Use only a skill name from the catalog, or "none" if nothing fits. Prefer the most specific skill (e.g. ad copy → ad-creative, not copywriting; editing existing copy → copy-editing, not copywriting).\n\n` +
@@ -72,16 +83,25 @@ for (let i = 0; i < cases.length; i += BATCH) {
     const got = (byIdx.get(j + 1)?.skill ?? "").trim();
     graded++;
     if (got === c.expected) correct++;
-    else misses.push({ query: c.query, expected: c.expected, got: got || "(none returned)", hallucinated: got && got !== "none" && !names.has(got) });
+    else misses.push({
+      query: c.query,
+      expected: c.expected,
+      got: got || "(none returned)",
+      hallucinated: got && got !== "none" && !names.has(got),
+      boundary: (c.forbidden ?? []).includes(got),
+    });
   });
   console.error(dim(`  ${Math.min(i + BATCH, cases.length)}/${cases.length}`));
 }
 
 const pct = ((correct / graded) * 100).toFixed(1);
+const boundaryCount = misses.filter((m) => m.boundary).length;
 console.log(`\nRouting accuracy: ${correct}/${graded} = ${pct}%`);
+if (boundaryCount) console.log(`Scope-boundary violations: ${boundaryCount} (a forbidden adjacent skill grabbed the query — fix these descriptions first)`);
 if (misses.length) {
   console.log(`\nMis-routes (the confusions to fix in descriptions):`);
   for (const m of misses) {
-    console.log(`  "${m.query}"\n    expected ${m.expected} → got ${m.got}${m.hallucinated ? " ⚠ not a real skill" : ""}`);
+    const flags = [m.boundary ? "⚠ FORBIDDEN for this query" : "", m.hallucinated ? "⚠ not a real skill" : ""].filter(Boolean).join(" ");
+    console.log(`  "${m.query}"\n    expected ${m.expected} → got ${m.got}${flags ? " " + flags : ""}`);
   }
 }

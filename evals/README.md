@@ -54,6 +54,8 @@ evals/
 
 Adding a judge is deliberately boring: create `judges/<name>/` with a `JUDGE.md` + `answer-key.json`, run `node harness.mjs judges/<name>` until the agreement number is good, commit. The harness never changes.
 
+**Routing cases** (`triggers/router.json`) are `{ query, expected }`, optionally with `forbidden: [...]` — named adjacent skills that must NOT grab that query (e.g. "audit my Google Ads" must route to `ads`, never `seo-audit`). A miss that lands on a forbidden skill is reported as a **scope-boundary violation**, the worst miss class: it means two skill descriptions are fighting over the same query, and those descriptions are the first thing to fix. (Negative-routing assertion pattern from [claude-ads](https://github.com/AgriciDaniel/claude-ads), MIT.)
+
 ## Model benchmark
 
 `benchmark.mjs` ranks models (Opus / Sonnet / GPT / Kimi / Gemini…) on a marketing task by **quality × cost × time**: each contestant *generates* outputs, a fixed *blind* judge (optionally 2-model consensus) grades them, and the leaderboard reports pass-rate, tokens, latency, and **cost per accepted output** (the routing metric). The generator and judge are kept separate so no model grades its own work. `node benchmark.mjs --dry-run` validates a run without spending. See `benchmark/README.md` and issue #480.
